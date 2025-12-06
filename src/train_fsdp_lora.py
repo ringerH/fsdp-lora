@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
 
@@ -9,12 +8,13 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import LoraConfig, get_peft_model, TaskType
 
 
-MODEL_NAME = "distilgpt2"  # small, safe for T4
+MODEL_NAME = "distilgpt2"   # small, safe for T4
 MAX_LENGTH = 128
 BATCH_SIZE = 4
-LR = 5e-5
+LR = 5e-4
 EPOCHS = 2
 DATA_FILE = "data/sample.txt"
 
@@ -54,10 +54,8 @@ class InstructionDataset(Dataset):
         with open(file_path, "r", encoding="utf-8") as f:
             raw = f.read().strip()
 
-        # Very simple split: each block separated by blank line or pattern
         blocks = [b.strip() for b in raw.split("### Instruction:") if b.strip()]
         for block in blocks:
-            # We expect "instruction ... ### Response: ..."
             if "### Response:" not in block:
                 continue
             instr_part, resp_part = block.split("### Response:", 1)
@@ -84,7 +82,6 @@ class InstructionDataset(Dataset):
 
     def __getitem__(self, idx):
         ex = self.examples[idx]
-        # For simple language modeling, labels = input_ids
         return {
             "input_ids": ex["input_ids"],
             "attention_mask": ex["attention_mask"],
@@ -92,11 +89,42 @@ class InstructionDataset(Dataset):
         }
 
 
-def build_model(device):
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
-    model.to(device)
-    model = FSDP(model)
-    return model
+def print_trainable_params(model, rank=0):
+    if rank != 0:
+        return
+    trainable, total = 0, 0
+    for p in model.parameters():
+        num = p.numel()
+        total += num
+        if p.requires_grad:
+            trainable += num
+    pct = 100 * trainable / total if total > 0 else 0.0
+    print(f"Trainable params: {trainable:,} / {total:,} ({pct:.2f}%)")
+
+
+def build_lora_model(device, rank):
+    # 1) base model
+    base_model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+    base_model.to(device)
+
+    # 2) define LoRA config
+    lora_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.05,
+        target_modules=["c_attn", "c_proj"],  # typical for GPT-2 style blocks
+        bias="none",
+    )
+
+    # 3) wrap with PEFT (adds LoRA layers, freezes base weights)
+    lora_model = get_peft_model(base_model, lora_config)
+    print_trainable_params(lora_model, rank=rank)
+
+    # 4) FSDP wrap (on Kaggle this will be NO_SHARD, but code is multi-GPU ready)
+    lora_model = FSDP(lora_model)
+
+    return lora_model
 
 
 def build_dataloader(tokenizer, world_size, rank):
@@ -118,13 +146,14 @@ def main():
 
     if rank == 0:
         print(f"World size: {world_size}, device: {device}, model: {MODEL_NAME}")
+        print("Using LoRA + FSDP (world_size may be 1 on Kaggle).")
 
     tokenizer = load_tokenizer()
-    model = build_model(device)
+    model = build_lora_model(device, rank)
 
     train_loader, train_sampler = build_dataloader(tokenizer, world_size, rank)
 
-    optimizer = optim.AdamW(model.parameters(), lr=LR)
+    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=LR)
 
     model.train()
     for epoch in range(EPOCHS):
@@ -144,7 +173,7 @@ def main():
                 print(f"Epoch {epoch} | Step {step} | Loss {loss.item():.4f}")
 
     if rank == 0:
-        print("Training finished.")
+        print("Training finished (LoRA + FSDP).")
 
     cleanup_distributed()
 
