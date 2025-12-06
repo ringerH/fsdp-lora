@@ -1,0 +1,54 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# PyTorch lightning / checkpoints / logs
+lightning_logs/
+logs/
+checkpoints/
+*.ckpt
+
+# Model weights / outputs
+*.pt
+*.bin
+*.safetensors
+
+# Hugging Face cache
+~/.cache/huggingface/
+huggingface/
+cache/
+datasets/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kaggle working dirs
+/kaggle/working/*
+/kaggle/temp/*
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Generated configs/outputs
+*.log
+*.tmp
