@@ -2,10 +2,10 @@
 import torch
 import torch.optim as optim
 
-from src.fsdp_utils import setup_distributed, cleanup_distributed, wrap_with_fsdp
-from src.model_wrapper import load_tokenizer, load_base_model
-from src.lora_utils import add_lora_to_model
-from src.dataset import build_dataloader
+from fsdp_utils import setup_distributed, cleanup_distributed, wrap_with_fsdp
+from model_wrapper import load_tokenizer, load_base_model
+from lora_utils import add_lora_to_model
+from dataset import build_dataloader
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 
