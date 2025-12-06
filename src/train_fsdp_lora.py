@@ -122,7 +122,7 @@ def build_lora_model(device, rank):
     print_trainable_params(lora_model, rank=rank)
 
     # 4) FSDP wrap (on Kaggle this will be NO_SHARD, but code is multi-GPU ready)
-    lora_model = FSDP(lora_model)
+    lora_model = FSDP(lora_model, use_orig_params=True)
 
     return lora_model
 
